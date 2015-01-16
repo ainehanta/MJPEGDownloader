@@ -1,10 +1,8 @@
 package com.ainehanta.kisarazu.mpegdownloader;
 
 import java.io.BufferedInputStream;
-import java.io.BufferedReader;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.Authenticator;
 import java.net.HttpURLConnection;
 import java.net.PasswordAuthentication;
@@ -16,11 +14,9 @@ public class MJPEGDownloader {
 
 		HttpURLConnection connection = null;
 		URL url = null;
-		byte[] imageBuffer = null;
-		int contentLength = 0;
 		
-		// final String BOUNDARY = "ipcamera";
-		final String CONTENT_LENGTH = "Content-Length";
+		byte[] responseBuffer = new byte[30000];
+		byte[] imageBuffer = new byte[30000];
 		
 		try {
 			// Basic認証
@@ -28,51 +24,52 @@ public class MJPEGDownloader {
 			
 			url = new URL("http://192.168.0.51:7777/media/?action=stream");
 			connection = (HttpURLConnection)url.openConnection();
-			
 			connection.connect();
 			
 			int responseCode = connection.getResponseCode();
 			if(responseCode == 200)
 			{
-				String lineBuffer;
 				BufferedInputStream bufInput = new BufferedInputStream(connection.getInputStream());
-				BufferedReader bufRead = new BufferedReader(new InputStreamReader(bufInput));
 				
-				while(true)
+				for(int i=0;i < responseBuffer.length;i++)
 				{
-					lineBuffer = bufRead.readLine();
-					System.out.println(lineBuffer);
-					if(lineBuffer.startsWith(CONTENT_LENGTH))
-					{
-						lineBuffer = lineBuffer.split(":")[1];
-						lineBuffer = lineBuffer.trim();
-						contentLength = Integer.parseInt(lineBuffer);
-						System.out.println("Content-Length: " + contentLength);
-						
-						//空行を読み飛ばす 
-						bufRead.readLine();
-						break;
-					}
-				}
-				
-				if(contentLength > 0)
-				{
-					imageBuffer = new byte[contentLength];
-					for(int i=0;i < contentLength; i++)
-					{
-						imageBuffer[i] = (byte)bufInput.read();
-					}
+					responseBuffer[i] = (byte)(bufInput.read() & (byte)0xff);
 				}
 				
 				bufInput.close();
-				bufRead.close();
 				
-				if(imageBuffer != null)
+				boolean startFlag = false;
+				int imageBufferCount = 0;
+				for(int i=0;i < responseBuffer.length;i++)
 				{
-					FileOutputStream fileOutput = new FileOutputStream("sample.jpg");
-					fileOutput.write(imageBuffer);
-					fileOutput.close();
+					if(responseBuffer[i] == (byte)0xff)
+					{
+						if(responseBuffer[i+1] == (byte)0xd8)
+						{
+							startFlag = true;
+							System.out.println("Start.");
+						}
+					}
+					
+					if(startFlag == true)
+					{
+						imageBuffer[imageBufferCount++] = responseBuffer[i];
+						if(responseBuffer[i] == (byte)0xff)
+						{
+							if(responseBuffer[i+1] == (byte)0xd9)
+							{
+								imageBuffer[imageBufferCount++] = responseBuffer[i+1];
+								System.out.println("End.");
+								break;
+							}
+						}
+					}
 				}
+				
+				FileOutputStream fileOutput = new FileOutputStream("sample.jpg");
+				fileOutput.write(imageBuffer, 0, imageBufferCount);
+				
+				fileOutput.close();
 				
 				System.out.println("Done.");
 			}
